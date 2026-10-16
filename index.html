@@ -139,6 +139,7 @@
             <h1>Sine Wave Signal</h1>
             <div style="display: flex; gap: 10px;">
                 <button class="theme-toggle" onclick="document.body.classList.toggle('dark-mode')">🌓 Toggle Theme</button>
+                <button class="theme-toggle" id="auto-color-btn" onclick="toggleAutoColor()">🎨 Auto Color: Off</button>
                 <button class="theme-toggle" onclick="resetControls()">🔄 Reset</button>
             </div>
         </div>
@@ -155,6 +156,10 @@
             <div class="control-group">
                 <label>Angular Velocity <span id="omega-val">0.05 rad/f</span></label>
                 <input type="range" id="omega" min="0" max="0.3" step="0.01" value="0.05">
+            </div>
+            <div class="control-group">
+                <label>Color Hue <span id="hue-val">220°</span></label>
+                <input type="range" id="hue" min="0" max="360" step="1" value="220">
             </div>
         </div>
 
@@ -173,13 +178,16 @@
         const freqInput = document.getElementById('frequency');
         const ampInput = document.getElementById('amplitude');
         const omegaInput = document.getElementById('omega');
+        const hueInput = document.getElementById('hue');
         const freqVal = document.getElementById('freq-val');
         const ampVal = document.getElementById('amp-val');
         const omegaVal = document.getElementById('omega-val');
+        const hueVal = document.getElementById('hue-val');
         const stats = document.getElementById('stats');
 
         let width, height;
         let phase = 0;
+        let autoColor = false;
 
         function resize() {
             const rect = canvas.getBoundingClientRect();
@@ -201,10 +209,17 @@
             const frequency = parseFloat(freqInput.value);
             const amplitude = parseFloat(ampInput.value);
             const omega = parseFloat(omegaInput.value);
+            let hue = parseFloat(hueInput.value);
+
+            if (autoColor) {
+                hue = (hue + 1) % 360;
+                hueInput.value = hue;
+            }
 
             freqVal.innerText = `${frequency.toFixed(1)} Hz`;
             ampVal.innerText = `${Math.round(amplitude * 100)}%`;
             omegaVal.innerText = `${omega.toFixed(2)} rad/f`;
+            hueVal.innerText = `${Math.round(hue)}°`;
 
             ctx.beginPath();
             ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--grid-color');
@@ -218,7 +233,7 @@
             ctx.stroke();
 
             ctx.beginPath();
-            ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--signal-color');
+            ctx.strokeStyle = `hsl(${hue}, 70%, ${document.body.classList.contains('dark-mode') ? '60%' : '50%'})`;
             ctx.lineWidth = 2;
             ctx.lineJoin = 'round';
 
@@ -245,11 +260,19 @@
             requestAnimationFrame(draw);
         }
 
+        function toggleAutoColor() {
+            autoColor = !autoColor;
+            document.getElementById('auto-color-btn').innerText = `🎨 Auto Color: ${autoColor ? 'On' : 'Off'}`;
+        }
+
         function resetControls() {
             freqInput.value = 1;
             ampInput.value = 0.5;
             omegaInput.value = 0.05;
+            hueInput.value = 220;
             phase = 0;
+            autoColor = false;
+            document.getElementById('auto-color-btn').innerText = `🎨 Auto Color: Off`;
         }
 
         draw();
