@@ -57,6 +57,15 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
         }
 
         h1 {
@@ -95,11 +104,10 @@
             position: relative;
             width: 100%;
             height: 300px;
-            border-left: 2px solid var(--text-primary);
-            border-bottom: 2px solid var(--text-primary);
             background: var(--bg-color);
             border-radius: 0 0 4px 0;
             overflow: hidden;
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         canvas {
@@ -137,9 +145,15 @@
     <div class="container">
         <div class="header">
             <h1>Sine Wave Signal</h1>
-            <div style="display: flex; gap: 10px;">
+            <div class="button-group">
                 <button class="theme-toggle" onclick="document.body.classList.toggle('dark-mode')">🌓 Toggle Theme</button>
-                <button class="theme-toggle" id="auto-color-btn" onclick="toggleAutoColor()">🎨 Auto Color: Off</button>
+                <button class="theme-toggle" id="audio-btn" onclick="toggleAudio()">🔊 Audio: Off</button>
+                <button class="theme-toggle" id="auto-color-btn" onclick="toggleAutoColor()">🎨 Auto Color: On</button>
+                <button class="theme-toggle" id="auto-omega-btn" onclick="toggleAutoOmega()">🌀 Auto Speed: On</button>
+                <button class="theme-toggle" id="auto-thick-btn" onclick="toggleAutoThick()">📏 Auto Thick: On</button>
+                <button class="theme-toggle" id="sig1-btn" onclick="toggleSignal1()">📡 Signal 1: On</button>
+                <button class="theme-toggle" id="sig2-btn" onclick="toggleSignal2()">📡 Signal 2: On</button>
+                <button class="theme-toggle" onclick="toggleFlip()">↔️ Flip</button>
                 <button class="theme-toggle" onclick="resetControls()">🔄 Reset</button>
             </div>
         </div>
@@ -155,11 +169,23 @@
             </div>
             <div class="control-group">
                 <label>Angular Velocity <span id="omega-val">0.05 rad/f</span></label>
-                <input type="range" id="omega" min="0" max="0.3" step="0.01" value="0.05">
+                <input type="range" id="omega" min="-0.3" max="0.3" step="0.01" value="0.05">
             </div>
             <div class="control-group">
                 <label>Color Hue <span id="hue-val">220°</span></label>
                 <input type="range" id="hue" min="0" max="360" step="1" value="220">
+            </div>
+            <div class="control-group">
+                <label>Thickness <span id="thick-val">2px</span></label>
+                <input type="range" id="thickness" min="1" max="20" step="1" value="2">
+            </div>
+            <div class="control-group">
+                <label>Phase Diff <span id="phase-diff-val">90°</span></label>
+                <input type="range" id="phase-diff" min="0" max="360" step="1" value="90">
+            </div>
+            <div class="control-group">
+                <label>Volume <span id="vol-val">10%</span></label>
+                <input type="range" id="volume" min="0" max="1" step="0.01" value="0.1">
             </div>
         </div>
 
@@ -179,15 +205,35 @@
         const ampInput = document.getElementById('amplitude');
         const omegaInput = document.getElementById('omega');
         const hueInput = document.getElementById('hue');
+        const thickInput = document.getElementById('thickness');
+        const phaseDiffInput = document.getElementById('phase-diff');
+        const volInput = document.getElementById('volume');
         const freqVal = document.getElementById('freq-val');
         const ampVal = document.getElementById('amp-val');
         const omegaVal = document.getElementById('omega-val');
         const hueVal = document.getElementById('hue-val');
+        const thickVal = document.getElementById('thick-val');
+        const phaseDiffVal = document.getElementById('phase-diff-val');
+        const volVal = document.getElementById('vol-val');
         const stats = document.getElementById('stats');
 
         let width, height;
         let phase = 0;
-        let autoColor = false;
+        let autoColor = true;
+        let autoOmega = true;
+        let autoThick = true;
+        let isFlipped = false;
+        let signal1Enabled = true;
+        let signal2Enabled = true;
+
+        let audioCtx = null;
+        let oscillatorL = null;
+        let oscillatorR = null;
+        let gainL = null;
+        let gainR = null;
+        let pannerL = null;
+        let pannerR = null;
+        let isAudioOn = false;
 
         function resize() {
             const rect = canvas.getBoundingClientRect();
@@ -208,18 +254,44 @@
             const h = height / window.devicePixelRatio;
             const frequency = parseFloat(freqInput.value);
             const amplitude = parseFloat(ampInput.value);
-            const omega = parseFloat(omegaInput.value);
+            let omega = parseFloat(omegaInput.value);
             let hue = parseFloat(hueInput.value);
+            let thickness = parseFloat(thickInput.value);
+            const phaseDiffDeg = parseFloat(phaseDiffInput.value);
+            const phaseDiffRad = (phaseDiffDeg * Math.PI) / 180;
 
             if (autoColor) {
                 hue = (hue + 1) % 360;
                 hueInput.value = hue;
             }
 
+            if (autoOmega) {
+                omega = 0 + 0.3 * Math.sin(Date.now() * 0.001);
+                omegaInput.value = omega;
+            }
+
+            if (autoThick) {
+                thickness = 10.5 + 9.5 * Math.sin(Date.now() * 0.002);
+                thickInput.value = thickness;
+            }
+
             freqVal.innerText = `${frequency.toFixed(1)} Hz`;
             ampVal.innerText = `${Math.round(amplitude * 100)}%`;
             omegaVal.innerText = `${omega.toFixed(2)} rad/f`;
             hueVal.innerText = `${Math.round(hue)}°`;
+            thickVal.innerText = `${thickness}px`;
+            phaseDiffVal.innerText = `${phaseDiffDeg}°`;
+            volVal.innerText = `${Math.round(parseFloat(volInput.value) * 100)}%`;
+
+            if (audioCtx && oscillatorL && oscillatorR) {
+                const audioFreq = frequency * 100;
+                const volume = isAudioOn ? parseFloat(volInput.value) : 0;
+
+                oscillatorL.frequency.setTargetAtTime(audioFreq, audioCtx.currentTime, 0.03);
+                oscillatorR.frequency.setTargetAtTime(audioFreq, audioCtx.currentTime, 0.03);
+                gainL.gain.setTargetAtTime(isAudioOn && signal1Enabled ? volume : 0, audioCtx.currentTime, 0.03);
+                gainR.gain.setTargetAtTime(isAudioOn && signal2Enabled ? volume : 0, audioCtx.currentTime, 0.03);
+            }
 
             ctx.beginPath();
             ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--grid-color');
@@ -232,19 +304,39 @@
             }
             ctx.stroke();
 
-            ctx.beginPath();
-            ctx.strokeStyle = `hsl(${hue}, 70%, ${document.body.classList.contains('dark-mode') ? '60%' : '50%'})`;
-            ctx.lineWidth = 2;
-            ctx.lineJoin = 'round';
-
-            for (let x = 0; x <= w; x++) {
-                const t = x / w;
-                const angle = 2 * Math.PI * frequency * t + phase;
-                const y = (h / 2) + Math.sin(angle) * (h / 2 * amplitude);
-                if (x === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
+            // Signal 1
+            if (signal1Enabled) {
+                ctx.beginPath();
+                ctx.strokeStyle = `hsl(${hue}, 70%, ${document.body.classList.contains('dark-mode') ? '60%' : '50%'})`;
+                ctx.lineWidth = thickness;
+                ctx.lineJoin = 'round';
+                for (let x = 0; x <= w; x++) {
+                    const t = x / w;
+                    const angle = 2 * Math.PI * frequency * t + phase;
+                    const y = (h / 2) + Math.sin(angle) * (h / 2 * amplitude);
+                    if (x === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
             }
-            ctx.stroke();
+
+            // Signal 2
+            if (signal2Enabled) {
+                ctx.beginPath();
+                ctx.strokeStyle = `hsl(${(hue + 180) % 360}, 70%, ${document.body.classList.contains('dark-mode') ? '60%' : '50%'})`;
+                ctx.lineWidth = thickness;
+                ctx.lineJoin = 'round';
+                ctx.setLineDash([5, 5]);
+                for (let x = 0; x <= w; x++) {
+                    const t = x / w;
+                    const angle = 2 * Math.PI * frequency * t + phase + phaseDiffRad;
+                    const y = (h / 2) + Math.sin(angle) * (h / 2 * amplitude);
+                    if (x === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
 
             const leadAngle = phase;
             const leadY = (h / 2) + Math.sin(leadAngle) * (h / 2 * amplitude);
@@ -265,14 +357,81 @@
             document.getElementById('auto-color-btn').innerText = `🎨 Auto Color: ${autoColor ? 'On' : 'Off'}`;
         }
 
+        function toggleAutoOmega() {
+            autoOmega = !autoOmega;
+            document.getElementById('auto-omega-btn').innerText = `🌀 Auto Speed: ${autoOmega ? 'On' : 'Off'}`;
+        }
+
+        function toggleAutoThick() {
+            autoThick = !autoThick;
+            document.getElementById('auto-thick-btn').innerText = `📏 Auto Thick: ${autoThick ? 'On' : 'Off'}`;
+        }
+
+        function toggleSignal1() {
+            signal1Enabled = !signal1Enabled;
+            document.getElementById('sig1-btn').innerText = `📡 Signal 1: ${signal1Enabled ? 'On' : 'Off'}`;
+        }
+
+        function toggleSignal2() {
+            signal2Enabled = !signal2Enabled;
+            document.getElementById('sig2-btn').innerText = `📡 Signal 2: ${signal2Enabled ? 'On' : 'Off'}`;
+        }
+
+        function toggleAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+                oscillatorL = audioCtx.createOscillator();
+                gainL = audioCtx.createGain();
+                pannerL = audioCtx.createStereoPanner();
+                pannerL.pan.value = -1;
+                oscillatorL.type = 'sine';
+                oscillatorL.connect(gainL).connect(pannerL).connect(audioCtx.destination);
+                oscillatorL.start();
+
+                oscillatorR = audioCtx.createOscillator();
+                gainR = audioCtx.createGain();
+                pannerR = audioCtx.createStereoPanner();
+                pannerR.pan.value = 1;
+                oscillatorR.type = 'sine';
+                oscillatorR.connect(gainR).connect(pannerR).connect(audioCtx.destination);
+                oscillatorR.start();
+            }
+
+            isAudioOn = !isAudioOn;
+            const volume = parseFloat(volInput.value);
+            gainL.gain.setTargetAtTime(isAudioOn ? volume : 0, audioCtx.currentTime, 0.03);
+            gainR.gain.setTargetAtTime(isAudioOn ? volume : 0, audioCtx.currentTime, 0.03);
+            document.getElementById('audio-btn').innerText = `🔊 Audio: ${isAudioOn ? 'On' : 'Off'}`;
+        }
+
+        function toggleFlip() {
+            isFlipped = !isFlipped;
+            const container = document.querySelector('.canvas-container');
+            container.style.transform = isFlipped ? 'scaleX(-1)' : 'scaleX(1)';
+        }
+
         function resetControls() {
             freqInput.value = 1;
             ampInput.value = 0.5;
             omegaInput.value = 0.05;
             hueInput.value = 220;
+            thickInput.value = 2;
+            phaseDiffInput.value = 90;
+            volInput.value = 0.1;
             phase = 0;
-            autoColor = false;
-            document.getElementById('auto-color-btn').innerText = `🎨 Auto Color: Off`;
+            autoColor = true;
+            autoOmega = false;
+            autoThick = false;
+            signal1Enabled = true;
+            signal2Enabled = true;
+            isFlipped = false;
+            document.querySelector('.canvas-container').style.transform = 'scaleX(1)';
+            document.getElementById('auto-color-btn').innerText = `🎨 Auto Color: On`;
+            document.getElementById('auto-omega-btn').innerText = `🌀 Auto Speed: Off`;
+            document.getElementById('auto-thick-btn').innerText = `📏 Auto Thick: Off`;
+            document.getElementById('sig1-btn').innerText = `📡 Signal 1: On`;
+            document.getElementById('sig2-btn').innerText = `📡 Signal 2: On`;
         }
 
         draw();
